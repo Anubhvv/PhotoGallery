@@ -253,6 +253,26 @@ fun PhotoCardStack(context: Context, photoUris: List<ImagesDataManager.ImageData
             Box(modifier = Modifier
                 .weight(1f)
             ) {
+                val photoUrisChunks = photoUris.chunked(4)
+                val chunkIndex = remember(topCard.intValue){
+                    mutableIntStateOf(mapToChunkIndexAndItemIndex(topCard.intValue,4).first)
+                }
+                val itemIndex = remember(chunkIndex.intValue){mutableIntStateOf(0)}
+
+                photoUrisChunks[chunkIndex.value].forEachIndexed { index, imgData ->
+                    if (index == itemIndex.value) {
+                        DraggableCard(
+                            photoUri = imgData.uri,
+                            onSwipedLeft = { onSwipedLeft(imgData.uri) },
+                            onSwipedRight = { onSwipedRight(imgData.uri) },
+                            isTopCard = mapToTotalIndex( chunkIndex.intValue,index,4) == topCard.intValue,
+                            offsetXForBackground = offsetX
+                        )
+                    }
+                }
+
+
+
                 photoUris.forEachIndexed { index, imgData ->
                     val uri = imgData.uri
                     if (index <= topCard.intValue) {
@@ -473,4 +493,20 @@ fun InstructionRow(icon: @Composable () -> Unit, text: String) {
         Spacer(modifier = Modifier.width(8.dp))
         Text(text, color = Color.White)
     }
+}
+
+/**
+ * Function to map the total index to the chunk index and item index
+ * @param totalIndex: Int topCard.intValue
+ * @param chunkSize: Int
+ * @return Pair<Int, Int> chunkIndex and itemIndex
+ */
+fun mapToChunkIndexAndItemIndex(totalIndex: Int, chunkSize: Int): Pair<Int, Int> {
+    val chunkIndex = totalIndex / chunkSize
+    val itemIndex = totalIndex % chunkSize
+    return Pair(chunkIndex, itemIndex)
+}
+
+fun mapToTotalIndex(chunkIndex: Int, itemIndex: Int, chunkSize: Int): Int {
+    return chunkIndex * chunkSize + itemIndex
 }

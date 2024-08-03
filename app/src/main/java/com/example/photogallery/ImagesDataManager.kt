@@ -30,7 +30,7 @@ class ImagesDataManager {
                 projection,
                 null,
                 null,
-                "${MediaStore.Images.Media.DATE_ADDED} ASC"
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
             )
 //            if (cursor != null && cursor.count > 10) {
 //                cursor.moveToPosition(9)
@@ -43,7 +43,7 @@ class ImagesDataManager {
             cursor?.use {
                 val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                 val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
-                while (it.moveToNext()) {
+                while (it.moveToNext() && imageDataList.size < 10) {
                     val id = it.getLong(idColumn)
                     val sizeInBytes = it.getLong(sizeColumn)
                     var sizeInMB = sizeInBytes / (1024.0f * 1024.0f)
@@ -60,7 +60,7 @@ class ImagesDataManager {
                     imageDataList.add(ImageData(uri, size, unit))
                 }
             }
-            return imageDataList
+            return imageDataList.asReversed()
         }
     }
 }
