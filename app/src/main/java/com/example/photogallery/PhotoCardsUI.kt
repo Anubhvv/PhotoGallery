@@ -31,22 +31,30 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.layout.LazyLayout
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltipBox
 import androidx.compose.material3.PlainTooltipState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +75,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.lang.Float.max
+import java.lang.Float.min
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -97,29 +107,29 @@ fun DraggableCard(
         // ...
         LaunchedEffect(isFirstVisit.value) {
             // Delay to give the user some time to read the instructions
-                while (isFirstVisit.value && isTopCard) {
-                    val targetOffset = 150f
-                    //delay(2000)
-                    // Animate offsetX to simulate a swipe to the right
-                    offsetX.animateTo(
-                        targetValue = targetOffset,
-                        animationSpec = tween(durationMillis = 500)
-                    )
+            while (isFirstVisit.value && isTopCard) {
+                val targetOffset = 150f
+                //delay(2000)
+                // Animate offsetX to simulate a swipe to the right
+                offsetX.animateTo(
+                    targetValue = targetOffset,
+                    animationSpec = tween(durationMillis = 500)
+                )
 
-                    // Animate offsetX back to 0 to return the card to its original position
-                    offsetX.animateTo(
-                        targetValue = 0f,
-                        animationSpec = tween(durationMillis = 500)
-                    )
-                    offsetX.animateTo(
-                        targetValue = -targetOffset,
-                        animationSpec = tween(durationMillis = 500)
-                    )
-                    offsetX.animateTo(
-                        targetValue = 0f,
-                        animationSpec = tween(durationMillis = 500)
-                    )
-                }
+                // Animate offsetX back to 0 to return the card to its original position
+                offsetX.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 500)
+                )
+                offsetX.animateTo(
+                    targetValue = -targetOffset,
+                    animationSpec = tween(durationMillis = 500)
+                )
+                offsetX.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 500)
+                )
+            }
         }
     }
     LaunchedEffect(offsetX.value == 0f) {
@@ -132,7 +142,9 @@ fun DraggableCard(
     }
 
     Card(
-        colors = if(isTopCard) CardDefaults.cardColors() else CardDefaults.cardColors(containerColor = Color.LightGray ),
+        colors = if (isTopCard) CardDefaults.cardColors() else CardDefaults.cardColors(
+            containerColor = Color.LightGray
+        ),
         modifier = Modifier
             .alpha(if (isTopCard && abs(offsetX.value) > 60) 1 - abs(offsetX.value) / 3000f else 1f)
             .padding(16.dp)
@@ -202,25 +214,51 @@ fun DraggableCard(
  * @param photoUris The list of photo URIs, and image size and unit
  * @param onDelete The callback function to delete the photo
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PhotoCardStack(context: Context, photoUris: List<ImagesDataManager.ImageData>, onDelete: (Uri) -> Unit) {
-    val topCard = remember { mutableIntStateOf(photoUris.lastIndex) }
+fun PhotoCardStack(
+    context: Context,
+    photoUris: List<ImagesDataManager.ImageData>,
+    reload: MutableState<Int>,
+    onDelete: (Uri) -> Boolean
+) {
+    val topCard = remember(photoUris) { mutableIntStateOf(photoUris.lastIndex) }
     val offsetX = remember(topCard.intValue) { Animatable(0f) }
 
-    if(topCard.intValue == -1) {
-        showCardsFinishUI(context)
+    if (topCard.intValue == -1) {
+        if (ImagesDataManager.imagesSeen % 30 == 0)
+            showCardsFinishUI(context, reload)
+        else reload.value += 1
         return
     }
-    val isFirstVisit = rememberSaveable { mutableStateOf(true) }
+    val isFirstVisit = rememberSaveable { mutableStateOf(reload.value == 0) }
 
-    val onSwipedLeft = { uri: Uri ->
+    val onSwipedLeft = { imgData: ImagesDataManager.ImageData ->
         // Handle left swipe
         // delete the photo from the memory
-        Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
-        onDelete(uri)
+        val uri = imgData.uri
+
+        val deletedSuccessfully = onDelete(uri)
         println("Swiped Left: $uri")
-        topCard.intValue -= 1
+        if (deletedSuccessfully) {
+            Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+            ImagesDataManager.storageCleared = convertToMB(imgData.size, imgData.unit)
+            topCard.intValue -= 1
+            ImagesDataManager.imagesSeen += 1
+            ImagesDataManager.topCard = topCard.intValue
+
+        } else {
+            try {
+                context.contentResolver.delete(uri, null, null)
+            } catch (securityException: SecurityException) {
+
+            }
+            Toast.makeText(context, "Deleted", Toast.LENGTH_SHORT).show()
+            ImagesDataManager.storageCleared = convertToMB(imgData.size, imgData.unit)
+            topCard.intValue -= 1
+            ImagesDataManager.imagesSeen += 1
+            ImagesDataManager.topCard = topCard.intValue
+
+        }
 
     }
     val onSwipedRight = { uri: Uri ->
@@ -229,19 +267,28 @@ fun PhotoCardStack(context: Context, photoUris: List<ImagesDataManager.ImageData
 
         println("Swiped Right: $uri")
         topCard.intValue -= 1
+        ImagesDataManager.imagesSeen += 1
+        ImagesDataManager.topCard = topCard.intValue
         // Handle right swipe
         // Show next photo
     }
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(
-            color = when {
-                offsetX.value > 0 -> Color.Green.copy((abs(offsetX.value) / 1000f))
-                offsetX.value < 0 -> Color.Red.copy(alpha = (abs(offsetX.value) / 1000f))
-                else -> Color.Transparent
-            }
-        )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                color = when {
+                    offsetX.value > 0 -> Color.Green.copy(min(1.0f, (abs(offsetX.value) / 1200f)))
+                    offsetX.value < 0 -> Color.Red.copy(
+                        alpha = min(
+                            1.0f,
+                            (abs(offsetX.value) / 1200f)
+                        )
+                    )
+
+                    else -> Color.Transparent
+                }
+            )
     ) {
 
         Column(
@@ -249,28 +296,38 @@ fun PhotoCardStack(context: Context, photoUris: List<ImagesDataManager.ImageData
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            LinearProgressIndicator(
+                progress = (ImagesDataManager.imagesSeen.toFloat() % 30) / 30,
+                color = Color.Blue,
+                // backgroundColor = Color.LightGray,
+                //  strokeWidth = 4.dp,
+                modifier = Modifier
+                    .width(150.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(2.dp))
+            )
 
-            Box(modifier = Modifier
-                .weight(1f)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
             ) {
                 val photoUrisChunks = photoUris.chunked(4)
-                val chunkIndex = remember(topCard.intValue){
-                    mutableIntStateOf(mapToChunkIndexAndItemIndex(topCard.intValue,4).first)
+                val chunkIndex = remember(topCard.intValue) {
+                    mutableIntStateOf(mapToChunkIndexAndItemIndex(topCard.intValue, 4).first)
                 }
-                val itemIndex = remember(chunkIndex.intValue){mutableIntStateOf(0)}
+                val itemIndex = remember(chunkIndex.intValue) { mutableIntStateOf(0) }
 
-                photoUrisChunks[chunkIndex.value].forEachIndexed { index, imgData ->
-                    if (index == itemIndex.value) {
-                        DraggableCard(
-                            photoUri = imgData.uri,
-                            onSwipedLeft = { onSwipedLeft(imgData.uri) },
-                            onSwipedRight = { onSwipedRight(imgData.uri) },
-                            isTopCard = mapToTotalIndex( chunkIndex.intValue,index,4) == topCard.intValue,
-                            offsetXForBackground = offsetX
-                        )
-                    }
-                }
-
+//                photoUrisChunks[chunkIndex.value].forEachIndexed { index, imgData ->
+//                    if (index == itemIndex.value) {
+//                        DraggableCard(
+//                            photoUri = imgData.uri,
+//                            onSwipedLeft = { onSwipedLeft(imgData) },
+//                            onSwipedRight = { onSwipedRight(imgData.uri) },
+//                            isTopCard = mapToTotalIndex( chunkIndex.intValue,index,4) == topCard.intValue,
+//                            offsetXForBackground = offsetX
+//                        )
+//                    }
+//                }
 
 
                 photoUris.forEachIndexed { index, imgData ->
@@ -278,7 +335,7 @@ fun PhotoCardStack(context: Context, photoUris: List<ImagesDataManager.ImageData
                     if (index <= topCard.intValue) {
                         DraggableCard(
                             photoUri = uri,
-                            onSwipedLeft = { onSwipedLeft(uri) },
+                            onSwipedLeft = { onSwipedLeft(imgData) },
                             onSwipedRight = { onSwipedRight(uri) },
                             isTopCard = index == topCard.intValue,
                             offsetXForBackground = offsetX
@@ -295,7 +352,7 @@ fun PhotoCardStack(context: Context, photoUris: List<ImagesDataManager.ImageData
                         contentDescription = "Delete this image",
                         color = Color.Red
                     ) {
-                        onSwipedLeft(photoUris[topCard.intValue].uri)
+                        onSwipedLeft(photoUris[topCard.intValue])
                     }
                 },
                 content2 = {
@@ -318,35 +375,66 @@ fun PhotoCardStack(context: Context, photoUris: List<ImagesDataManager.ImageData
                 .clickable { isFirstVisit.value = false },
             contentAlignment = Alignment.Center
         ) {
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
+            Column(
+                Modifier.matchParentSize(),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    InstructionRow(
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_swipe_left),
-                                contentDescription = "swipe left icon",
-                                modifier = Modifier.size(48.dp),
-                                tint = Color.White
-                            )
-                        },
-                        text = "Swipe left to delete the image from storage"
-                    )
+                InstructionRow(
+                    icon = { /*TODO*/ },
+                    text = "This is a photo gallery app where you can discard images that you don't want to keep while saving the ones you like by swiping left or right."
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        InstructionRow(
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_swipe_left),
+                                    contentDescription = "swipe left icon",
+                                    modifier = Modifier.size(48.dp),
+                                    tint = Color.White
+                                )
+                            },
+                            text = "Swipe left to delete the image from storage"
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        InstructionRow(
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_swipe_right),
+                                    contentDescription = "swipe right con",
+                                    modifier = Modifier.size(48.dp),
+                                    tint = Color.White
+                                )
+                            },
+                            text = "Swipe right to retain and show next image"
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.width(16.dp))
-                Box(modifier = Modifier.weight(1f) ){
-                    InstructionRow(
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_swipe_right),
-                                contentDescription = "swipe right con",
-                                modifier = Modifier.size(48.dp),
-                                tint = Color.White
-                            )
-                        },
-                        text = "Swipe right to retain and show next image"
-                    )
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        InstructionRow(
+                            icon = {
+
+                            },
+                            text = "You can also use this Delete Button"
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        InstructionRow(
+                            icon = {
+
+                            },
+                            text = "You can use this Green Button to move to next image"
+                        )
+                    }
                 }
             }
         }
@@ -369,8 +457,14 @@ fun PhotoCardStack(context: Context, photoUris: List<ImagesDataManager.ImageData
         }
     }
 }
+
 @Composable
-fun FileInfoCard(name: String, size: String, content1: @Composable () -> Unit = {}, content2: @Composable () -> Unit = {}){
+fun FileInfoCard(
+    name: String,
+    size: String,
+    content1: @Composable () -> Unit = {},
+    content2: @Composable () -> Unit = {}
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -384,7 +478,8 @@ fun FileInfoCard(name: String, size: String, content1: @Composable () -> Unit = 
             verticalAlignment = Alignment.CenterVertically
         ) {
             content1()
-            Column( horizontalAlignment = Alignment.CenterHorizontally
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
 
             ) {
                 Text(
@@ -410,21 +505,25 @@ fun FileInfoCard(name: String, size: String, content1: @Composable () -> Unit = 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun showCardsFinishUI(activity: Context) {
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .padding(30.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally){
-
-        val openURL = rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
-            // Handle the returned result here if needed
-        }
+fun showCardsFinishUI(activity: Context, reload: MutableState<Int> = mutableStateOf(0)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(30.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        val openURL =
+            rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
+                // Handle the returned result here if needed
+            }
         val tooltipState = PlainTooltipState()
         LaunchedEffect(tooltipState) {
             tooltipState.show()
         }
 
         Box(
-            modifier= Modifier
+            modifier = Modifier
                 .size(70.dp)
                 .clip(CircleShape)
                 .background(Color.Green)
@@ -435,37 +534,94 @@ fun showCardsFinishUI(activity: Context) {
                     (activity as Activity).finish()
                 },
             contentAlignment = Alignment.Center
-        ){
+        ) {
             PlainTooltipBox(
-                tooltip = {Text("Click to view my GitHub profile")},
+                tooltip = { Text("Click to view my GitHub profile") },
                 tooltipState = tooltipState
-            ){
+            ) {
                 Icon(
                     Icons.Filled.Check,
                     modifier = Modifier.size(60.dp),
-                    contentDescription = "Delete this Image",
+                    contentDescription = "Check icon",
                     tint = Color.White
                 )
             }
 
         }
         Text(
-            text = "Well done, you have seen all the images!",
+            text = "Well done, you have reviewed so many images!",
             style = MaterialTheme.typography.displaySmall,
             color = Color.Gray,
             modifier = Modifier
                 .padding(16.dp)
-                .fillMaxSize()
+                .wrapContentSize()
                 .background(MaterialTheme.colorScheme.background),
             textAlign = TextAlign.Center
         )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .wrapContentHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    modifier = Modifier.wrapContentHeight(),
+                    text = "Total Storage Saved",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(
+                    modifier = Modifier
+                        .height(1.dp)
+                        .background(Color.White)
+                        .fillMaxWidth()
+                )
+                Text(
+                    modifier = Modifier.wrapContentHeight(),
+                    text = String.format("%.1f", ImagesDataManager.storageCleared) + " " +
+                            "MB",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .size(70.dp)
+                .clip(CircleShape)
+                .background(Color.Blue)
+                .clickable {
+                    reload.value += 1
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.Refresh,
+                modifier = Modifier.size(60.dp),
+                contentDescription = "Reload icon",
+                tint = Color.White
+            )
+        }
     }
 }
 
 @Composable
-fun CircularButtons(imageVector: ImageVector, contentDescription: String, color: Color, onClick: () -> Unit){
+fun CircularButtons(
+    imageVector: ImageVector,
+    contentDescription: String,
+    color: Color,
+    onClick: () -> Unit
+) {
     Box(
-        modifier= Modifier
+        modifier = Modifier
             .size(50.dp)
             .clip(CircleShape)
             .background(color)
@@ -473,13 +629,13 @@ fun CircularButtons(imageVector: ImageVector, contentDescription: String, color:
                 onClick()
             },
         contentAlignment = Alignment.Center
-    ){
-            Icon(
-                imageVector,
-                modifier = Modifier.size(38.dp),
-                contentDescription = contentDescription,
-                tint = Color.White
-            )
+    ) {
+        Icon(
+            imageVector,
+            modifier = Modifier.size(38.dp),
+            contentDescription = contentDescription,
+            tint = Color.White
+        )
 
 
     }
@@ -487,8 +643,10 @@ fun CircularButtons(imageVector: ImageVector, contentDescription: String, color:
 
 @Composable
 fun InstructionRow(icon: @Composable () -> Unit, text: String) {
-    Column( Modifier.padding(8.dp),horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center) {
+    Column(
+        Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
         icon()
         Spacer(modifier = Modifier.width(8.dp))
         Text(text, color = Color.White)
@@ -509,4 +667,12 @@ fun mapToChunkIndexAndItemIndex(totalIndex: Int, chunkSize: Int): Pair<Int, Int>
 
 fun mapToTotalIndex(chunkIndex: Int, itemIndex: Int, chunkSize: Int): Int {
     return chunkIndex * chunkSize + itemIndex
+}
+
+fun convertToMB(size: String, unit: String): Float {
+    return when (unit) {
+        "MB" -> size.toFloat()
+        "KB" -> size.toFloat() / 1024
+        else -> 0f
+    }
 }

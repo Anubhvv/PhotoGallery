@@ -22,7 +22,7 @@ class ImagesDataManager {
          * @param contentResolver: ContentResolver
          * @return List<ImageData>: List of image data
          */
-        fun fetchAllImages(contentResolver: ContentResolver): List<ImageData> {
+        fun fetchAllImages(contentResolver: ContentResolver, startIndex: Int = 0): List<ImageData> {
             val imageDataList = mutableListOf<ImageData>()
             val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.SIZE)
             val cursor = contentResolver.query(
@@ -32,14 +32,8 @@ class ImagesDataManager {
                 null,
                 "${MediaStore.Images.Media.DATE_ADDED} DESC"
             )
-//            if (cursor != null && cursor.count > 10) {
-//                cursor.moveToPosition(9)
-//                cursor.setNotificationUri(
-//                    contentResolver,
-//                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-//                )
-//            }
-
+            if(startIndex > 0)
+                cursor?.moveToPosition(startIndex-1)
             cursor?.use {
                 val idColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                 val sizeColumn = it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
@@ -60,7 +54,12 @@ class ImagesDataManager {
                     imageDataList.add(ImageData(uri, size, unit))
                 }
             }
+            if(topCard < 0)
+                topCard = 10-1
             return imageDataList.asReversed()
         }
+        var imagesSeen = 0
+        var topCard = 10-1
+        var storageCleared = 0.0f
     }
 }
